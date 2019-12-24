@@ -5,196 +5,254 @@ namespace src\classes;
 
 class Fees
 {
-	protected const CONVERSION_RATES = [
-		'EUR' => 1,
-		'USD' => 1.1497,
-		'JPY' => 129.53,
-	];
+    // conversio rates currency to EUR
+    protected const CONVERSION_RATES = [
+        'EUR' => 1,
+        'USD' => 1.1497,
+        'JPY' => 129.53,
+    ];
 
+    // used with sprintf
+    protected const CURRENCY_PRECISION = [
+        'EUR' => '%0.2f',
+        'USD' => '%0.2f',
+        'JPY' => '%0.0f',
+    ];
+
+    // used with ceil
+    protected const CURRENCY_PRECISION_POW = [
+        'EUR' => 100,
+        'USD' => 100,
+        'JPY' => 1,
+    ];
+
+    // fee for cash_in operation type in percents
     protected const CASH_IN_FEE = [
-    	'natural' =>  0.03, // percents
-        'legal' => 0.03, // percents
-    ]; 
+        'natural' =>  0.03,
+        'legal' => 0.03,
+    ];
 
+    // max fee for cash_in operation type in EUR
     protected const MAX_CASH_IN_FEE = [
-    	'natural' =>  5, // EUR
-        'legal' => 5, // EUR
+        'natural' =>  5,
+        'legal' => 5,
     ];
 
+    // fee for cash_out operation type in percents
     protected const CASH_OUT_FEE = [
-    	'natural' =>  0.3, // percents
-        'legal' => 0.3, // percents
-    ]; 
+        'natural' =>  0.3,
+        'legal' => 0.3,
+    ];
 
+    // min fee for cash_out operation type in EUR
     protected const MIN_CASH_OUT_FEE = [
-    	'natural' => 0.5, // EUR
-        'legal' => 0.5, // EUR
+        'natural' => 0,
+        'legal' => 0.5,
     ];
 
-    protected const WEEKLY_FREE_OF_CHARGE = [
-    	'natural' => 1000, // EUR
-    	'legal' => NULL, // EUR
+    // weekly amount free of charge for cash_out operation type in EUR
+    protected const WEEKLY_AMOUNT_FREE_OF_CHARGE = [
+        'natural' => 1000,
+        'legal' => 0,
     ];
 
-    protected const DISCOUNT_APPLIED_FOR = 3;
+    // weekly number of operations  free of charge
+    protected const OP_NUMBER_FREE_OF_CHARGE = [
+        'natural' => 3,
+        'legal' => 0,
+    ];
 
+    // calculated fees
     protected $final_fees = [];
-    protected $user_fees_count = [];
-    protected $user_fees_amount = [];
+    
+    // temp array for users fees
+    protected $user_fees = [];
+    
+    // input .csv file
     protected $csv_file = '';
 
     /**
-	 * @param string $file_name
-	 */
+     * @param string $file_name
+     * @throws Exception
+     */
     public function __construct($file_name)
     {
-    	$this->csv_file = $file_name;
+        if (!is_readable($file_name)) {
+            throw new \Exception('The provided file is not readable!');
+        }
+        $this->csv_file = $file_name;
     }
 
     /**
-	 * @return iterable, array with calculated fees
-	 */
-    public function calc_fees() : iterable
+     * public function for calculating fees
+     * @return iterable, array with calculated fees
+     * @throws ErrorException
+     */
+    public function calcFees() : iterable
     {
-    	$data = self::parse_csv();
+        $data = self::parseCSV();
 
-    	foreach ($data as $operation) {
+        foreach ($data as $operation) {
+            if (list($date, $user_id, $user_type, $operation_type, $amount, $currency) = $operation) {
+                switch ($operation_type) {
+                    case 'cash_in':
+                        $this->calcCashIn($user_type, (float) $amount, $currency);
+                        break;
 
-    		list($date, $user_id, $user_type, $operation_type, $amount, $currency) = $operation;
+                    case 'cash_out':
+                        $this->calcCashOut($date, (int) $user_id, $user_type, (float) $amount, $currency);
+                        break;
 
-    		switch ($operation_type) {
-    			case 'cash_in':
-    				$this->calc_cash_in($date, $user_id, $user_type, $operation_type, $amount, $currency);
-    				break;
+                    default:
+                        throw new \ErrorException('Not a valid operation type!');
+                        break;
+                }
+            } else {
+                // this will never be reached, but no warnings will be thrown if $operation is not a valid row
+                throw new \Exception('Not a valid operation!');
+            }
+        }
 
-    			case 'cash_out':
-    				$this->calc_cash_out($date, $user_id, $user_type, $operation_type, $amount, $currency);
-    				break;
-    			
-    			default:
-    				throw new \Exception('Not a valid operation type!');
-    				break;
-    		}
-    	}
-
-    	return $this->final_fees;
+        return $this->final_fees;
     }
 
     /**
-	 * @return iterable, array with parsed csv
-	 */
-    private function parse_csv() : iterable
+     * parse .csv file into array
+     * @return iterable, array with parsed csv data
+     */
+    private function parseCSV() : iterable
     {
-    	$csv = array_map('str_getcsv', file($this->csv_file));
-    	
-    	return $csv;
+        $csv = array_map('str_getcsv', file($this->csv_file));
+
+        return $csv;
     }
 
-    private function calc_cash_out($date_str, $user_id, $user_type, $operation_type, $amount, $currency)
+    /**
+     * calculating cash_in fee
+     * the calculated value is added in the temp array $this->final_fees
+     *
+     * @param string $user_type natural / legal
+     * @param float $amount of current operation
+     * @param string $currency
+     */
+    private function calcCashIn(string $user_type, float $amount, string $currency) : void
     {
-    	$date = new \DateTime($date_str);
-    	$week = $date->format("oW");
+        $fee = ceil($amount * self::CASH_IN_FEE[$user_type]) / 100;
+        $fee_in_eur = $this->convertToEur($fee, $currency);
 
-    	print($week . PHP_EOL);
-
-		$amount_in_eur = $this->convert_to_eur($amount, $currency);
-
-    	
-    	if ($this->default_fee($user_id, $user_type, $week)) {
-
-			$fee = ceil($amount * self::CASH_OUT_FEE[$user_type]) / 100;
-
-    		$fee_in_eur = $this->convert_to_eur($fee, $currency);
-
-    		$final_fee = $fee_in_eur > self::MIN_CASH_OUT_FEE[$user_type] ? $fee : self::MIN_CASH_OUT_FEE[$user_type];
-
-			$this->final_fees[] = $final_fee;
-
-			$this->increase_user_amount($user_id, $week, $amount_in_eur);
-		} else { 
-
-			if (isset($this->user_fees_amount[$user_id][$week]) && $this->user_fees_amount[$user_id][$week] >= self::WEEKLY_FREE_OF_CHARGE[$user_type]) {
-				print('2' . PHP_EOL);
-				
-				$new_amount = $amount - self::WEEKLY_FREE_OF_CHARGE[$user_type];
-			}
-
-
-			
-
-			$fee = ceil($new_amount * self::CASH_OUT_FEE[$user_type]) / 100;
-
-    		$fee_in_eur = $this->convert_to_eur($fee, $currency);
-
-    		$final_fee = $fee_in_eur > self::MIN_CASH_OUT_FEE[$user_type] ? $fee : self::MIN_CASH_OUT_FEE[$user_type];
-			
-			$this->final_fees[] = $final_fee;
-			
-			$this->increase_user_amount($user_id, $week, $amount_in_eur);
-		}
+        $max_cash_in_fee = $this->convertToCurrency(self::MAX_CASH_IN_FEE[$user_type], $currency);
+        
+        $final_fee = $fee_in_eur < self::MAX_CASH_IN_FEE[$user_type] ? $fee : $max_cash_in_fee;
+        
+        $this->final_fees[] = $this->addPrecision($final_fee, $currency);
     }
 
-    private function increase_user_amount($user_id, $week, $amount_in_eur)
+    /**
+     * calculating cash_out fee
+     * the calculated value is added in the temp array $this->final_fees
+     *
+     * @param string $date_str in Y-m-d format
+     * @param int $user_id
+     * @param string $user_type natural / legal
+     * @param float $amount of current operation
+     * @param string $currency
+     */
+    private function calcCashOut(string $date_str, int $user_id, string $user_type, float $amount, string $currency)
     {
-    	if (isset($this->user_fees_count[$user_id][$week])) {
-			$this->user_fees_count[$user_id][$week] += 1;
-			$this->user_fees_amount[$user_id][$week] += $amount_in_eur;    		
-    	} else {
-   			// $this->user_fees_count[$user_id] = [];
-			// $this->user_fees_amount[$user_id] = [];
+        $date = new \DateTime($date_str);
+        //ISO-8601 week-numbering year + ISO-8601 week number of year
+        $week = $date->format("oW");
 
-    		$this->user_fees_count[$user_id][$week] = 1;
-			$this->user_fees_amount[$user_id][$week] = $amount_in_eur;
-    	}
+        $amount_in_eur = $this->convertToEur($amount, $currency);
+
+        $total_amount_in_eur = ($this->user_fees[$user_id][$week]['amount'] ?? 0) + $amount_in_eur;
+
+        // if user has less than OP_NUMBER_FREE_OF_CHARGE (cash_out) operations and
+        // total amount of current week operations is more than WEEKLY_AMOUNT_FREE_OF_CHARGE
+        if (($this->user_fees[$user_id][$week]['count'] ?? 0) <= self::OP_NUMBER_FREE_OF_CHARGE[$user_type]
+            && $total_amount_in_eur > self::WEEKLY_AMOUNT_FREE_OF_CHARGE[$user_type]) {
+            // calc the amount to be charged in eur
+            $amount_to_charge_in_eur = min(
+                $total_amount_in_eur - self::WEEKLY_AMOUNT_FREE_OF_CHARGE[$user_type],
+                $amount_in_eur
+            );
+
+            // calc the amount to be charged in current currency
+            $amount_to_charge = $this->convertToCurrency($amount_to_charge_in_eur, $currency);
+            
+            // calc the min cash_out fee in current currency
+            $min_cash_out_fee = $this->convertToCurrency(self::MIN_CASH_OUT_FEE[$user_type], $currency);
+            
+            // calc the biggest fee
+            $fee = ceil($amount_to_charge * self::CASH_OUT_FEE[$user_type]) / 100;
+            
+            $fee_in_eur = $this->convertToEur($fee, $currency);
+
+            $final_fee = $fee_in_eur > self::MIN_CASH_OUT_FEE[$user_type] ? $fee : $min_cash_out_fee;
+            $final_fee = $this->addPrecision($final_fee, $currency);
+        } else {
+            $final_fee = $this->addPrecision(0, $currency);
+        }
+
+        $this->final_fees[] = $final_fee;
+
+        $this->increaseUserAmount($user_id, $week, $amount_in_eur);
     }
 
-
-	private function default_fee($user_id, $user_type, $week)
-	{
-		$ret = FALSE;
-
-		if ('legal' === $user_type) {
-			$ret = TRUE;
-		} elseif ( isset($this->user_fees_count[$user_id][$week]) && $this->user_fees_count[$user_id][$week] > self::DISCOUNT_APPLIED_FOR) {
-			print('1' . PHP_EOL);
-			$ret = TRUE;
-		} else {
-			print('3' . PHP_EOL);
-			$ret = FALSE;
-		}
-
-		return $ret;
-	}
-
-    private function calc_cash_in($date, $user_id, $user_type, $operation_type, $amount, $currency)
+    /**
+     * increasing values in $this->user_fees
+     *
+     * @param int $user_id
+     * @param string $week in oW format
+     * @param float $amount_in_eur of current operation
+     *
+     * @return void
+     */
+    private function increaseUserAmount(int $user_id, string $week, float $amount_in_eur) : void
     {
-    	$fee = ceil($amount * self::CASH_IN_FEE[$user_type]) / 100;
-
-    	$fee_in_eur = $this->convert_to_eur($fee, $currency);
-
-    	$this->final_fees[] = $fee_in_eur < self::MAX_CASH_IN_FEE[$user_type] ? $fee : self::MAX_CASH_IN_FEE[$user_type];
+        $this->user_fees[$user_id][$week]['count'] = ($this->user_fees[$user_id][$week]['count'] ?? 0) + 1;
+        $this->user_fees[$user_id][$week]['amount'] =
+            ($this->user_fees[$user_id][$week]['amount'] ?? 0) +
+            $amount_in_eur;
     }
 
-    private function convert_to_eur($fee_amount, $currency)
+    /**
+     * convert amount from $currency to EUR
+     *
+     * @param float $amount
+     * @param string $currency
+     *
+     * @return float
+     */
+    private function convertToEur(float $amount, string $currency) : float
     {
-    	return $fee_amount / self::CONVERSION_RATES[$currency];
+        return $amount / self::CONVERSION_RATES[$currency];
     }
 
-/*
-Natural Persons
-
-Default commission fee - 0.3% from cash out amount.
-
-1000.00 EUR per week (from monday to sunday) is free of charge.
-
-If total cash out amount is exceeded - commission is calculated only from exceeded amount (that is, for 1000.00 EUR there is still no commission fee).
-
-This discount is applied only for first 3 cash out operations per week for each user - for forth and other operations commission is calculated by default rules (0.3%) - rule about 1000 EUR is applied only for first three cash out operations.
-
-
-Legal persons
-
-Commission fee - 0.3% from amount, but not less than 0.50 EUR for operation.
-*/
-
+    /**
+     * convert amount from EUR to $currency
+     *
+     * @param float $amount
+     * @param string $currency
+     *
+     * @return float
+     */
+    private function convertToCurrency(float $amount, string $currency) : float
+    {
+        return $amount * self::CONVERSION_RATES[$currency];
+    }
+    
+    /**
+     * adding precision depends on smallest $currency item
+     *
+     * @param float $amount
+     * @param string $currency
+     *
+     * @return string
+     */
+    private function addPrecision(float $amount, string $currency) : string
+    {
+        $amount = ceil($amount * self::CURRENCY_PRECISION_POW[$currency]) / self::CURRENCY_PRECISION_POW[$currency];
+        return sprintf(self::CURRENCY_PRECISION[$currency], $amount);
+    }
 }
