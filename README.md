@@ -1,2 +1,2 @@
 # task1
-solving task 1
+php run.php input.csv
