@@ -62,6 +62,11 @@ class Fees
         'legal' => 0,
     ];
 
+    protected const ACCEPTABLE_OPERATION_TYPES = [
+        'cash_in',
+        'cash_out',
+    ];
+
     // calculated fees
     protected $final_fees = [];
     
@@ -70,17 +75,34 @@ class Fees
     
     // input .csv file
     protected $csv_file = '';
+    
+    // the number of checked row, used when throwing an exception
+    protected static $checked_row = 0;
 
     /**
      * @param string $file_name
-     * @throws Exception
      */
-    public function __construct($file_name)
+    public function __construct(string $file_name)
+    {
+        $this->checkCsvFile($file_name);
+        
+        $this->csv_file = $file_name;
+    }
+
+    /**
+     * @param string $file_name
+     * @throws \Exception
+     */
+    private function checkCsvFile($file_name) : void
     {
         if (!is_readable($file_name)) {
             throw new \Exception('The provided file is not readable!');
         }
-        $this->csv_file = $file_name;
+    }
+
+    public static function fromString(string $file_name): self
+    {
+        return new self($file_name);
     }
 
     /**
@@ -93,27 +115,79 @@ class Fees
         $data = self::parseCSV();
 
         foreach ($data as $operation) {
-            if (list($date, $user_id, $user_type, $operation_type, $amount, $currency) = $operation) {
-                switch ($operation_type) {
-                    case 'cash_in':
-                        $this->calcCashIn($user_type, (float) $amount, $currency);
-                        break;
+            list($date, $user_id, $user_type, $operation_type, $amount, $currency) = self::checkLine($operation);
 
-                    case 'cash_out':
-                        $this->calcCashOut($date, (int) $user_id, $user_type, (float) $amount, $currency);
-                        break;
+            switch ($operation_type) {
+                case 'cash_in':
+                    $this->calcCashIn($user_type, (float) $amount, $currency);
+                    break;
 
-                    default:
-                        throw new \ErrorException('Not a valid operation type!');
-                        break;
-                }
-            } else {
-                // this will never be reached, but no warnings will be thrown if $operation is not a valid row
-                throw new \Exception('Not a valid operation!');
+                case 'cash_out':
+                    $this->calcCashOut($date, (int) $user_id, $user_type, (float) $amount, $currency);
+                    break;
+
+                default:
+                    throw new \ErrorException('Not a valid operation type!');
+                    break;
             }
         }
 
         return $this->final_fees;
+    }
+
+    /**
+     * @param array $row
+     * @return iterable, the input row
+     * @throws \InvalidArgumentException
+     */
+    public static function checkLine(array $row) : iterable
+    {
+        self::$checked_row ++;
+
+        if (!isset($row[5])) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values provided!')
+            );
+        }
+
+        $dt = \DateTime::createFromFormat("Y-m-d", $row[0]);
+        if ($dt === false || array_sum($dt::getLastErrors())) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "date" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        if (!preg_match("/^\d+$/", $row[1])) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "user_id" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        if (!in_array($row[2], array_keys(self::CASH_IN_FEE))) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "user_type" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        if (!in_array($row[3], self::ACCEPTABLE_OPERATION_TYPES)) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "operation_type" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        if (!is_numeric($row[4])) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "amount" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        if (!in_array($row[5], array_keys(self::CURRENCY_PRECISION))) {
+            throw new \InvalidArgumentException(
+                sprintf('Invalid values for parameter "currency" provided at line %s!', self::$checked_row)
+            );
+        }
+
+        return $row;
     }
 
     /**
