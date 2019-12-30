@@ -22,6 +22,20 @@ final class FeesTest extends TestCase
         src\classes\Fees::fromString('invalid');
     }
     
+    public function testCanParseRow(): void
+    {
+        src\classes\Fees::checkLine([
+            '2018-05-05',
+            '2',
+            'legal',
+            'cash_in',
+            '1000',
+            'EUR',
+        ], 2);
+
+        $this->addToAssertionCount(1);
+    }
+
     public function testCannotParseRow(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -33,28 +47,6 @@ final class FeesTest extends TestCase
             'cash_in',
             '1000',
             'EURO',
-        ]);
-    }
-
-    public function testCanParseRow(): void
-    {
-        $this->assertEquals(
-            [
-                '2018-05-05',
-                '2',
-                'legal',
-                'cash_in',
-                '1000',
-                'EUR',
-            ],
-            src\classes\Fees::checkLine([
-                '2018-05-05',
-                '2',
-                'legal',
-                'cash_in',
-                '1000',
-                'EUR',
-            ])
-        );
+        ], 1);
     }
 }
