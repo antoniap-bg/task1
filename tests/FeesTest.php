@@ -1,30 +1,33 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
+namespace Task;
 
 require_once __DIR__ . "/../src/classes/Fees.php";
+
+use PHPUnit\Framework\TestCase;
+use Task\Fees;
 
 final class FeesTest extends TestCase
 {
     public function testCanParseCsv(): void
     {
         $this->assertInstanceOf(
-            src\classes\Fees::class,
-            src\classes\Fees::fromString('input.csv')
+            Fees::class,
+            Fees::fromString('input.csv')
         );
     }
 
     public function testCannotParseInvalidCsv(): void
     {
-        $this->expectException(Exception::class);
+        $this->expectException(\Exception::class);
 
-        src\classes\Fees::fromString('invalid');
+        Fees::fromString('invalid');
     }
     
     public function testCanParseRow(): void
     {
-        src\classes\Fees::checkLine([
+        Fees::checkLine([
             '2018-05-05',
             '2',
             'legal',
@@ -40,7 +43,7 @@ final class FeesTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
 
-        src\classes\Fees::checkLine([
+        Fees::checkLine([
             '2018-05-05',
             '2',
             'legal',

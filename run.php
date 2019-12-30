@@ -3,12 +3,14 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/src/classes/Fees.php";
 
+use Task\Fees;
+
 $output = '';
 
 if (!isset($argv[1])) {
     $output = "It is required to provide .csv file path!" . PHP_EOL;
 } else {
-    $fees = new src\classes\Fees($argv[1]);
+    $fees = new Fees($argv[1]);
     $calculated_fees = $fees->calcFees();
 
     foreach ($calculated_fees as $fee) {
